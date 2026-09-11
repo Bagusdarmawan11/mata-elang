@@ -1,23 +1,27 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import MapView from './components/MapView.jsx'
 import Header from './components/Header.jsx'
 import Sidebar from './components/Sidebar.jsx'
+import GestureControl from './components/GestureControl.jsx'
 import { InfoPanel, Footer, ConfigModal, CCTVModal, Toasts } from './components/UI.jsx'
 import {
   useFlights, useShips, useQuakes, useBMKGQuakes,
-  useISS, useFires, useWeather,
+  useISS, useFires, useWeather, useVolcanoes,
 } from './hooks/useIntelData.js'
-import { WEATHER_CITIES } from './data/regions.js'
+import { WEATHER_CITIES, VOLCANOES } from './data/regions.js'
 
 export default function App() {
+  const mapRef = useRef(null) // Leaflet map instance for gesture control
+
   const [layers, setLayers] = useState({
     flights:true, ships:false, quakes:true, bmkgQuakes:true,
-    iss:true, fires:false, traffic:false, weather:false, cctv:false,
+    iss:true, fires:false, traffic:false, weather:false,
+    cctv:false, volcanoes:true,
   })
-  const [visualStyle, setVisualStyle] = useState('normal')
-  const [target, setTarget]           = useState(null)
-  const [coords, setCoords]           = useState(null)
-  const [config, setConfig]           = useState({
+  const [visualStyle, setVisualStyle]     = useState('normal')
+  const [target, setTarget]               = useState(null)
+  const [coords, setCoords]               = useState(null)
+  const [config, setConfig]               = useState({
     firms:  localStorage.getItem('me_firms')  || '',
     tomtom: localStorage.getItem('me_tomtom') || '',
     ais:    localStorage.getItem('me_ais')    || '',
@@ -28,7 +32,6 @@ export default function App() {
   const [showCCTV, setShowCCTV]           = useState(null)
   const [toasts, setToasts]               = useState([])
 
-  // data hooks
   const flights    = useFlights(layers.flights)
   const ships      = useShips(layers.ships, config.ais)
   const quakes     = useQuakes(layers.quakes)
@@ -36,63 +39,61 @@ export default function App() {
   const iss        = useISS(layers.iss)
   const fires      = useFires(layers.fires, config.firms)
   const weather    = useWeather(layers.weather, WEATHER_CITIES)
+  const volcanoes  = useVolcanoes(layers.volcanoes, VOLCANOES)
 
-  const addToast = useCallback((msg, type='') => {
-    const id = Date.now()
-    setToasts(t => [...t, {id, msg, type}])
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500)
-  }, [])
+  const addToast = useCallback((msg,type='') => {
+    const id=Date.now()
+    setToasts(t=>[...t,{id,msg,type}])
+    setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3500)
+  },[])
 
-  const toggleLayer = useCallback(name => {
-    setLayers(prev => ({...prev, [name]: !prev[name]}))
-  }, [])
+  const toggleLayer = useCallback(name => setLayers(p=>({...p,[name]:!p[name]})),[])
 
-  const handleTargetSelect = useCallback(t => {
-    setTarget(t); setInfoPanelOpen(true)
-  }, [])
+  const handleTarget = useCallback(t=>{setTarget(t);setInfoPanelOpen(true)},[])
 
-  const handleSaveConfig = useCallback(newCfg => {
-    if (newCfg.firms)  localStorage.setItem('me_firms', newCfg.firms)
-    if (newCfg.tomtom) localStorage.setItem('me_tomtom', newCfg.tomtom)
-    if (newCfg.ais)    localStorage.setItem('me_ais', newCfg.ais)
-    setConfig(newCfg)
-    addToast('API keys berhasil disimpan', 'success')
+  const handleSaveConfig = useCallback(cfg=>{
+    if(cfg.firms)  localStorage.setItem('me_firms',  cfg.firms)
+    if(cfg.tomtom) localStorage.setItem('me_tomtom', cfg.tomtom)
+    if(cfg.ais)    localStorage.setItem('me_ais',    cfg.ais)
+    setConfig(cfg)
+    addToast('API keys berhasil disimpan','success')
     setShowConfig(false)
-  }, [addToast])
+  },[addToast])
 
   return (
-    <div className={visualStyle !== 'normal' ? `mode-${visualStyle}` : ''} style={{height:'100%',position:'relative'}}>
+    <div className={visualStyle!=='normal'?`mode-${visualStyle}`:''} style={{height:'100%',position:'relative'}}>
       <div className="grid-overlay"/>
       <div className="scan-overlay"/>
       <MapView
-        layers={layers} config={config}
+        mapRef={mapRef} layers={layers} config={config}
         flights={flights} ships={ships} quakes={quakes} bmkgQuakes={bmkgQuakes}
-        iss={iss} fires={fires} weather={weather}
-        onCoordsChange={setCoords} onTargetSelect={handleTargetSelect}
+        iss={iss} fires={fires} weather={weather} volcanoes={volcanoes}
+        onCoordsChange={setCoords} onTargetSelect={handleTarget}
         onCCTVOpen={setShowCCTV}
       />
       <Header
-        flights={flights} quakes={quakes} fires={fires} ships={ships}
+        flights={flights} quakes={quakes} fires={fires} ships={ships} volcanoes={volcanoes}
         sidebarOpen={sidebarOpen} infoPanelOpen={infoPanelOpen}
-        onSidebarToggle={() => setSidebarOpen(s => !s)}
-        onInfoToggle={() => setInfoPanelOpen(s => !s)}
-        onConfigOpen={() => setShowConfig(true)}
+        onSidebarToggle={()=>setSidebarOpen(s=>!s)}
+        onInfoToggle={()=>setInfoPanelOpen(s=>!s)}
+        onConfigOpen={()=>setShowConfig(true)}
       />
       <Sidebar
         open={sidebarOpen} layers={layers} onToggleLayer={toggleLayer}
         style={visualStyle} onStyleChange={setVisualStyle}
-        onConfigOpen={() => setShowConfig(true)}
+        onConfigOpen={()=>setShowConfig(true)}
         flights={flights} ships={ships} quakes={quakes} bmkgQuakes={bmkgQuakes}
-        fires={fires} weather={weather} iss={iss}
+        fires={fires} weather={weather} iss={iss} volcanoes={volcanoes}
       />
       <InfoPanel
         open={infoPanelOpen} flights={flights} quakes={quakes} iss={iss}
-        fires={fires} ships={ships} bmkgQuakes={bmkgQuakes} target={target}
-        onClose={() => setInfoPanelOpen(false)} onCCTVOpen={setShowCCTV}
+        fires={fires} ships={ships} bmkgQuakes={bmkgQuakes} volcanoes={volcanoes}
+        target={target} onClose={()=>setInfoPanelOpen(false)} onCCTVOpen={setShowCCTV}
       />
       <Footer coords={coords}/>
-      {showConfig && <ConfigModal config={config} onSave={handleSaveConfig} onClose={() => setShowConfig(false)}/>}
-      {showCCTV   && <CCTVModal  cam={showCCTV}   onClose={() => setShowCCTV(null)}/>}
+      <GestureControl mapRef={mapRef}/>
+      {showConfig && <ConfigModal config={config} onSave={handleSaveConfig} onClose={()=>setShowConfig(false)}/>}
+      {showCCTV   && <CCTVModal  cam={showCCTV}   onClose={()=>setShowCCTV(null)}/>}
       <Toasts toasts={toasts}/>
     </div>
   )
