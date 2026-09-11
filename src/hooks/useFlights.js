@@ -1,189 +1,185 @@
 import { useState, useEffect, useCallback } from 'react'
 
-// ── NORMALIZE ke format seragam ───────────────────────────
+// ── NORMALIZE: adsb.lol/adsb.fi format → object seragam ─
 function fromReadsb(ac) {
-  // Format adsb.fi / adsb.lol (readsb JSON)
   if (!ac.lat || !ac.lon) return null
   if (ac.alt_baro === 'ground') return null
+
   const altFt = typeof ac.alt_baro === 'number' ? ac.alt_baro : null
+
   return {
     icao:     (ac.hex || '').toLowerCase(),
-    callsign: (ac.flight || '').trim() || ac.hex || '?',
+    callsign: (ac.flight || '').trim() || (ac.hex || '?'),
     lat:      ac.lat,
     lon:      ac.lon,
-    altM:     altFt ? Math.round(altFt * 0.3048) : null,   // ft → m
-    velKmh:   ac.gs  ? Math.round(ac.gs  * 1.852) : null,  // knot → km/j
+    altM:     altFt != null ? Math.round(altFt * 0.3048) : null,  // ft → m
+    velKmh:   ac.gs   ? Math.round(ac.gs   * 1.852)       : null, // knot → km/j
     hdg:      ac.track || 0,
-    vrMs:     ac.baro_rate ? ac.baro_rate * 0.00508 : 0,   // ft/min → m/s
+    vrMs:     ac.baro_rate ? ac.baro_rate * 0.00508 : 0,          // ft/min → m/s
     type:     ac.t  || '',
     reg:      ac.r  || '',
     country:  '',
-    source:   'adsb',
+    source:   'adsb.lol',
   }
 }
 
-function fromOpenSky(s) {
-  // Format OpenSky array
-  return {
-    icao:     s[0] || '?',
-    callsign: (s[1] || '').trim() || s[0] || '?',
-    lat:      s[6],
-    lon:      s[5],
-    altM:     s[7] ? Math.round(s[7]) : null,
-    velKmh:   s[9] ? Math.round(s[9] * 3.6) : null,
-    hdg:      s[10] || 0,
-    vrMs:     s[11] || 0,
-    type:     '',
-    reg:      '',
-    country:  s[2] || '',
-    source:   'opensky',
-  }
-}
-
-// ── SOURCE 1: adsb.fi (gratis, tanpa key, paling stabil) ─
-async function tryADSBFi() {
-  // Query 2 titik untuk cover seluruh Indonesia
-  const queries = [
-    'https://api.adsb.fi/v1/flights?lat=1&lon=108&radius=800',  // Barat
-    'https://api.adsb.fi/v1/flights?lat=-3&lon=129&radius=800', // Timur
-  ]
-  const results = await Promise.all(
-    queries.map(url =>
-      fetch(url, { signal: AbortSignal.timeout(10000) })
-        .then(r => r.ok ? r.json() : { ac: [] })
-        .catch(() => ({ ac: [] }))
-    )
-  )
-  const seen = new Set()
-  const flights = []
-  results.forEach(json => {
-    ;(json.ac || []).forEach(ac => {
-      if (!seen.has(ac.hex)) {
-        const f = fromReadsb(ac)
-        if (f) { flights.push(f); seen.add(ac.hex) }
-      }
-    })
-  })
-  if (flights.length === 0) throw new Error('adsb.fi: no data')
-  return { flights, source: 'adsb.fi' }
-}
-
-// ── SOURCE 2: adsb.lol (fallback) ────────────────────────
-async function tryADSBLol() {
-  const queries = [
-    'https://api.adsb.lol/v2/lat/0/lon/108/dist/900',
-    'https://api.adsb.lol/v2/lat/-3/lon/129/dist/900',
-  ]
-  const results = await Promise.all(
-    queries.map(url =>
-      fetch(url, { signal: AbortSignal.timeout(10000) })
-        .then(r => r.ok ? r.json() : { ac: [] })
-        .catch(() => ({ ac: [] }))
-    )
-  )
-  const seen = new Set()
-  const flights = []
-  results.forEach(json => {
-    ;(json.ac || []).forEach(ac => {
-      if (!seen.has(ac.hex)) {
-        const f = fromReadsb(ac)
-        if (f) { flights.push(f); seen.add(ac.hex) }
-      }
-    })
-  })
-  if (flights.length === 0) throw new Error('adsb.lol: no data')
-  return { flights, source: 'adsb.lol' }
-}
-
-// ── SOURCE 3: OpenSky (fallback terakhir) ─────────────────
-async function tryOpenSky(username = '', password = '') {
-  const headers = {}
-  if (username && password) {
-    headers['Authorization'] = 'Basic ' + btoa(`${username}:${password}`)
-  }
-  const url = 'https://opensky-network.org/api/states/all?lamin=-11&lamax=6&lomin=95&lomax=141'
-  const res = await fetch(url, {
-    headers,
+// ── SOURCE A: Vercel serverless /api/flights ──────────────
+// Panggil fungsi serverless kita sendiri — tidak ada CORS karena
+// request dari browser ke origin yang sama (mata-elang.vercel.app)
+async function tryOwnAPI() {
+  const res = await fetch('/api/flights', {
     signal: AbortSignal.timeout(12000),
   })
-  if (res.status === 429) throw new Error('OpenSky: rate limited')
+  // Kalau 404 = lagi di localhost tanpa serverless → lempar error, coba sumber lain
+  if (res.status === 404) throw new Error('serverless not available (localhost)')
+  if (!res.ok) throw new Error(`/api/flights HTTP ${res.status}`)
+
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+
+  const flights = (json.ac || []).map(fromReadsb).filter(Boolean)
+  if (flights.length === 0) throw new Error('/api/flights: 0 pesawat')
+  return { flights, source: `adsb.lol (${flights.length})` }
+}
+
+// ── SOURCE B: adsb.lol langsung (untuk localhost dev) ─────
+// Di production Vercel sudah ditangani SOURCE A.
+// Ini fallback kalau developer jalanin lokal.
+const LOL_QUERIES = [
+  { lat:  1.0, lon: 106.0, dist: 250 },
+  { lat: -2.0, lon: 118.0, dist: 250 },
+  { lat: -3.0, lon: 133.0, dist: 250 },
+]
+
+async function tryADSBLolDirect() {
+  const results = await Promise.all(
+    LOL_QUERIES.map(q =>
+      fetch(
+        `https://api.adsb.lol/v2/lat/${q.lat}/lon/${q.lon}/dist/${q.dist}`,
+        { signal: AbortSignal.timeout(8000) }
+      )
+        .then(r => r.ok ? r.json() : { ac: [] })
+        .catch(() => ({ ac: [] }))
+    )
+  )
+
+  const seen = new Set()
+  const flights = []
+  results.forEach(r => {
+    ;(r.ac || []).forEach(ac => {
+      if (!seen.has(ac.hex)) {
+        const f = fromReadsb(ac)
+        if (f) { flights.push(f); seen.add(ac.hex) }
+      }
+    })
+  })
+
+  if (flights.length === 0) throw new Error('adsb.lol direct: 0 pesawat (CORS?)')
+  return { flights, source: `adsb.lol direct (${flights.length})` }
+}
+
+// ── SOURCE C: OpenSky (last resort) ──────────────────────
+async function tryOpenSky(user = '', pass = '') {
+  const headers = {}
+  if (user && pass) {
+    headers['Authorization'] = 'Basic ' + btoa(`${user}:${pass}`)
+  }
+  const res = await fetch(
+    'https://opensky-network.org/api/states/all?lamin=-11&lamax=6&lomin=95&lomax=141',
+    { headers, signal: AbortSignal.timeout(12000) }
+  )
+  if (res.status === 429) throw new Error('OpenSky: rate limited (coba lagi 1 menit)')
   if (res.status === 401) throw new Error('OpenSky: username/password salah')
   if (!res.ok) throw new Error(`OpenSky: HTTP ${res.status}`)
+
   const json = await res.json()
   const flights = (json.states || [])
     .filter(s => s[5] && s[6] && !s[8])
-    .map(fromOpenSky)
-  return { flights, source: 'OpenSky' }
+    .map(s => ({
+      icao:     s[0] || '?',
+      callsign: (s[1] || '').trim() || s[0] || '?',
+      lat:      s[6],
+      lon:      s[5],
+      altM:     s[7] ? Math.round(s[7]) : null,
+      velKmh:   s[9] ? Math.round(s[9] * 3.6) : null,
+      hdg:      s[10] || 0,
+      vrMs:     s[11] || 0,
+      type:     '',
+      reg:      '',
+      country:  s[2] || '',
+      source:   'OpenSky',
+    }))
+
+  if (flights.length === 0) throw new Error('OpenSky: 0 pesawat')
+  return { flights, source: `OpenSky (${flights.length})` }
 }
 
 // ── MAIN HOOK ─────────────────────────────────────────────
 export function useFlights(enabled, oskUser = '', oskPass = '') {
-  const [data,    setData]    = useState([])
-  const [status,  setStatus]  = useState('idle')   // idle|loading|ok|error
-  const [source,  setSource]  = useState('')        // which source succeeded
-  const [errMsg,  setErrMsg]  = useState('')
+  const [data,   setData]   = useState([])
+  const [status, setStatus] = useState('idle')
+  const [source, setSource] = useState('')
+  const [errMsg, setErrMsg] = useState('')
 
-  const fetchFlights = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!enabled) return
 
-    // Check cache (avoid hammering APIs on every render)
+    // Pakai cache kalau masih fresh (< 18 detik)
     try {
-      const cached = sessionStorage.getItem('me_flights_v2')
-      if (cached) {
-        const { pts, ts } = JSON.parse(cached)
-        if (Date.now() - ts < 20_000) {        // use if < 20s old
-          setData(pts)
-          setStatus('ok')
-          return
+      const raw = sessionStorage.getItem('me_flights_v3')
+      if (raw) {
+        const { pts, ts } = JSON.parse(raw)
+        if (Date.now() - ts < 18_000) {
+          setData(pts); setStatus('ok'); return
         }
       }
     } catch (_) {}
 
     setStatus('loading')
-    const errors = []
 
-    // Try each source in order
-    const sources = [
-      () => tryADSBFi(),
-      () => tryADSBLol(),
-      () => tryOpenSky(oskUser, oskPass),
+    const tryList = [
+      { name: 'vercel-api',   fn: tryOwnAPI },
+      { name: 'adsb-direct',  fn: () => tryADSBLolDirect() },
+      { name: 'opensky',      fn: () => tryOpenSky(oskUser, oskPass) },
     ]
 
-    for (const trySource of sources) {
+    const errors = []
+
+    for (const { name, fn } of tryList) {
       try {
-        const { flights, source } = await trySource()
+        const { flights, source } = await fn()
         setData(flights)
         setStatus('ok')
         setSource(source)
         setErrMsg('')
-        sessionStorage.setItem('me_flights_v2', JSON.stringify({ pts: flights, ts: Date.now() }))
+        sessionStorage.setItem('me_flights_v3', JSON.stringify({ pts: flights, ts: Date.now() }))
         return
       } catch (e) {
-        errors.push(e.message)
+        errors.push(`[${name}] ${e.message}`)
       }
     }
 
-    // All sources failed — try stale cache
+    // Semua gagal — coba tampilkan data lama
     try {
-      const stale = sessionStorage.getItem('me_flights_v2')
-      if (stale) {
-        const { pts } = JSON.parse(stale)
+      const raw = sessionStorage.getItem('me_flights_v3')
+      if (raw) {
+        const { pts } = JSON.parse(raw)
         setData(pts)
         setStatus('stale')
-        setErrMsg('Data lama. ' + errors.slice(-1)[0])
+        setErrMsg('Pakai data lama. ' + errors.at(-1))
         return
       }
     } catch (_) {}
 
     setStatus('error')
-    setErrMsg(errors.join(' | '))
+    setErrMsg(errors.join(' → '))
   }, [enabled, oskUser, oskPass])
 
   useEffect(() => {
-    fetchFlights()
-    const id = setInterval(fetchFlights, 20_000) // refresh tiap 20 detik
+    fetchAll()
+    const id = setInterval(fetchAll, 20_000) // refresh tiap 20 detik
     return () => clearInterval(id)
-  }, [fetchFlights])
+  }, [fetchAll])
 
   useEffect(() => {
     if (!enabled) { setData([]); setStatus('idle'); setSource(''); setErrMsg('') }
