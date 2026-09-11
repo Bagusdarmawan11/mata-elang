@@ -4,14 +4,15 @@ import Header from './components/Header.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import GestureControl from './components/GestureControl.jsx'
 import { InfoPanel, Footer, ConfigModal, CCTVModal, Toasts } from './components/UI.jsx'
+import { useFlights } from './hooks/useFlights.js'
 import {
-  useFlights, useShips, useQuakes, useBMKGQuakes,
+  useShips, useQuakes, useBMKGQuakes,
   useISS, useFires, useWeather, useVolcanoes,
 } from './hooks/useIntelData.js'
 import { WEATHER_CITIES, VOLCANOES } from './data/regions.js'
 
 export default function App() {
-  const mapRef = useRef(null) // Leaflet map instance for gesture control
+  const mapRef = useRef(null)
 
   const [layers, setLayers] = useState({
     flights:true, ships:false, quakes:true, bmkgQuakes:true,
@@ -22,9 +23,11 @@ export default function App() {
   const [target, setTarget]               = useState(null)
   const [coords, setCoords]               = useState(null)
   const [config, setConfig]               = useState({
-    firms:  localStorage.getItem('me_firms')  || '',
-    tomtom: localStorage.getItem('me_tomtom') || '',
-    ais:    localStorage.getItem('me_ais')    || '',
+    firms:   localStorage.getItem('me_firms')   || '',
+    tomtom:  localStorage.getItem('me_tomtom')  || '',
+    ais:     localStorage.getItem('me_ais')     || '',
+    oskUser: localStorage.getItem('me_oskUser') || '',
+    oskPass: localStorage.getItem('me_oskPass') || '',
   })
   const [sidebarOpen, setSidebarOpen]     = useState(true)
   const [infoPanelOpen, setInfoPanelOpen] = useState(false)
@@ -32,7 +35,8 @@ export default function App() {
   const [showCCTV, setShowCCTV]           = useState(null)
   const [toasts, setToasts]               = useState([])
 
-  const flights    = useFlights(layers.flights)
+  // Data hooks
+  const flights    = useFlights(layers.flights, config.oskUser, config.oskPass)
   const ships      = useShips(layers.ships, config.ais)
   const quakes     = useQuakes(layers.quakes)
   const bmkgQuakes = useBMKGQuakes(layers.bmkgQuakes)
@@ -52,11 +56,9 @@ export default function App() {
   const handleTarget = useCallback(t=>{setTarget(t);setInfoPanelOpen(true)},[])
 
   const handleSaveConfig = useCallback(cfg=>{
-    if(cfg.firms)  localStorage.setItem('me_firms',  cfg.firms)
-    if(cfg.tomtom) localStorage.setItem('me_tomtom', cfg.tomtom)
-    if(cfg.ais)    localStorage.setItem('me_ais',    cfg.ais)
+    Object.entries(cfg).forEach(([k,v])=>{ if(v) localStorage.setItem(`me_${k}`,v) })
     setConfig(cfg)
-    addToast('API keys berhasil disimpan','success')
+    addToast('Konfigurasi tersimpan','success')
     setShowConfig(false)
   },[addToast])
 

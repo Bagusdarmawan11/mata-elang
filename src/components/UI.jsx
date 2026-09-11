@@ -66,7 +66,11 @@ export function Footer({coords}){
 
 export function ConfigModal({config,onSave,onClose}){
   const[firms,setFirms]=useState('');const[tomtom,setTomtom]=useState('');const[ais,setAis]=useState('')
-  const save=()=>onSave({firms:firms||config.firms,tomtom:tomtom||config.tomtom,ais:ais||config.ais})
+  const[oskUser,setOskUser]=useState('');const[oskPass,setOskPass]=useState('')
+  const save=()=>onSave({
+    firms:firms||config.firms, tomtom:tomtom||config.tomtom,
+    ais:ais||config.ais, oskUser:oskUser||config.oskUser, oskPass:oskPass||config.oskPass,
+  })
   const fields=[
     {label:'NASA FIRMS MAP KEY — titik api',val:firms,set:setFirms,ph:config.firms?'Tersimpan ✓':'Paste FIRMS MAP KEY...',hint:'firms.modaps.eosdis.nasa.gov',url:'https://firms.modaps.eosdis.nasa.gov/api/map_key/'},
     {label:'TOMTOM API KEY — traffic live', val:tomtom,set:setTomtom,ph:config.tomtom?'Tersimpan ✓':'Paste TomTom API Key...',hint:'developer.tomtom.com',url:'https://developer.tomtom.com'},
@@ -84,6 +88,15 @@ export function ConfigModal({config,onSave,onClose}){
       ))}
       <div style={{marginTop:6,padding:10,borderRadius:6,background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.2)',fontFamily:C.mono,fontSize:9,color:'#10b981'}}>
         ✓ Cuaca (Open-Meteo) + BMKG + 60 kota Indonesia aktif otomatis — tidak perlu key
+      </div>
+      {/* OpenSky Credentials */}
+      <div style={{marginTop:14,padding:12,borderRadius:8,background:'rgba(6,182,212,.04)',border:'1px solid rgba(6,182,212,.15)'}}>
+        <div style={{...S.mLabel,marginBottom:8}}>OPENSKY CREDENTIALS (opsional — meningkatkan rate limit pesawat)</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <input style={S.mInput} value={oskUser} onChange={e=>setOskUser(e.target.value)} placeholder={config.oskUser?'Username tersimpan ✓':'Username OpenSky'}/>
+          <input style={S.mInput} type="password" value={oskPass} onChange={e=>setOskPass(e.target.value)} placeholder={config.oskPass?'Password tersimpan ✓':'Password'}/>
+        </div>
+        <div style={S.mHint}>Daftar gratis di <a href="https://opensky-network.org/login?registration" target="_blank" rel="noreferrer" style={{color:C.cyan,textDecoration:'none'}}>opensky-network.org</a> untuk 4.000 request/hari (vs 400 anonymous)</div>
       </div>
       <div style={{display:'flex',gap:8,marginTop:16}}>
         <button style={S.btnPrimary} onClick={save}>Simpan Keys</button>

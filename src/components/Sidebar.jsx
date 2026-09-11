@@ -23,9 +23,13 @@ const STYLES=[
 export default function Sidebar({open,layers,onToggleLayer,style,onStyleChange,onConfigOpen,flights,ships,quakes,bmkgQuakes,fires,weather,iss,volcanoes}){
   const getMeta=key=>{
     if(key==='flights'){
-      if(flights?.status==='ratelimit')return '⏳ rate limit — coba lagi 60s'
-      if(flights?.status==='error')    return '⚠ gagal memuat'
-      return flights?.count?`${flights.count} aktif`:'memuat...'
+      const st = flights?.status
+      if(st==='loading')  return '⏳ mengambil data...'
+      if(st==='ok')       return `${flights.count} aktif · ${flights.source||''}`
+      if(st==='stale')    return `⚠ data lama · ${flights.count} pesawat`
+      if(st==='ratelimit')return '⏳ rate limit, tunggu...'
+      if(st==='error')    return `⚠ ${flights?.errMsg||'semua sumber gagal'}`
+      return 'memuat...'
     }
     if(key==='ships'){
       const st=ships?.wsState

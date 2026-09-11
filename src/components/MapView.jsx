@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react'
+import FlightsLayerComponent from './FlightsLayer.jsx'
 import { MapContainer, TileLayer, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet.markercluster'
@@ -191,7 +192,7 @@ export default function MapView({mapRef,layers,config,flights,ships,quakes,bmkgQ
         <MapCapture mapRef={mapRef}/>
         <CoordTracker onMove={onCoordsChange}/>
 
-        {layers.flights    && <FlightsLayer data={flights.data}    onSelect={onTargetSelect}/>}
+        {layers.flights && <FlightsLayerComponent data={flights.data} onSelect={onTargetSelect}/>}
         {layers.ships      && <ShipsLayer   ships={ships.ships}     onSelect={onTargetSelect}/>}
         {layers.iss        && iss.data && (
           <Marker position={[iss.data.latitude,iss.data.longitude]} icon={issIco} zIndexOffset={1000}
